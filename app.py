@@ -1,54 +1,60 @@
 import streamlit as st
 import pandas as pd
+import requests
 from datetime import datetime
 
-# 1. LINKS DA PLANILHA (Substitua pelos links que você copiou agora)
-# DICA: O link deve terminar com 'output=csv'
-URL_DADOS = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPIQHHCmZ9LZvPoOCtB5OZWrdaYo2JMLkEdA41kyCPl6QkOicagxu-U7vQxSH9kNEeISvueqqI94UK/pub?output=csv"
-URL_HISTORICO = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPIQHHCmZ9LZvPoOCtB5OZWrdaYo2JMLkEdA41kyCPl6QkOicagxu-U7vQxSH9kNEeISvueqqI94UK/pub?gid=186597890&single=true&output=csv"
+# --- CONFIGURAÇÕES ---
+# 1. Cole aqui o link de "Publicar na Web" (CSV) para leitura rápida
+URL_LEITURA = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPIQHHCmZ9LZvPoOCtB5OZWrdaYo2JMLkEdA41kyCPl6QkOicagxu-U7vQxSH9kNEeISvueqqI94UK/pub?output=csv"
+# 2. Cole aqui o URL do Script que você acabou de criar
+URL_SCRIPT = "https://script.google.com/macros/s/AKfycbxw-J7-h69crq-LbHp26zf0XHrlKoBOFsbc6xWUmghn762GF7MNKU-LqFa1JBHo-cst/exec"
 
 st.set_page_config(page_title="Rastreador URE Mogi", layout="wide")
 
-# FUNÇÃO PARA LER OS DADOS SEM ERRO
-def carregar(url):
-    try:
-        return pd.read_csv(url)
-    except:
-        return pd.DataFrame()
-
-# --- INTERFACE ---
+# Interface
 st.sidebar.title("🔐 Acesso Restrito")
 senha = st.sidebar.text_input("Senha do Servidor", type="password")
 SENHA_CORRETA = "uremogi123"
 
 st.title("🏛️ Portal de Transparência - URE Mogi das Cruzes")
 
+# RECUPERANDO AS ABAS
 if senha == SENHA_CORRETA:
-    abas = st.tabs(["🔍 Consulta", "📥 Cadastro"])
+    abas = st.tabs(["🔍 Consulta", "📥 Triagem", "⚙️ Atualização"])
 else:
     abas = st.tabs(["🔍 Consulta"])
 
-# --- ABA DE CONSULTA ---
+# --- ABA 1: CONSULTA ---
 with abas[0]:
-    busca_cpf = st.text_input("Digite o CPF para consultar")
-    if st.button("🔍 Buscar"):
-        df = carregar(URL_DADOS)
-        if not df.empty:
-            # Filtra removendo pontos e traços do CPF digitado e da base
-            cpf_alvo = "".join(filter(str.isdigit, busca_cpf))
-            res = df[df['cpf_busca'].astype(str).str.contains(cpf_alvo)]
-            
-            if not res.empty:
-                for _, row in res.iterrows():
-                    with st.expander(f"📌 SEI: {row['sei_id']} - {row['assunto']}"):
-                        st.write(f"**Status:** {row['status_atual']}")
-                        st.write(f"**Última Atualização:** {row['data_abertura']}")
-            else:
-                st.warning("Nenhum registro encontrado.")
-        else:
-            st.error("Erro ao ler a base de dados. Verifique a publicação da planilha.")
+    busca_cpf = st.text_input("Consultar por CPF")
+    if st.button("Buscar"):
+        df = pd.read_csv(URL_LEITURA)
+        res = df[df['cpf_busca'].astype(str).str.contains(busca_cpf)]
+        if not res.empty:
+            for _, r in res.iterrows():
+                with st.expander(f"SEI {r['sei_id']}"):
+                    st.write(f"Status: {r['status_atual']}")
+        else: st.warning("Não encontrado.")
 
-# --- ABA DE CADASTRO (Aviso técnico) ---
+# --- ABA 2: TRIAGEM (CADASTRO) ---
 if senha == SENHA_CORRETA:
     with abas[1]:
-        st.info("💡 Como estamos usando o modo 'Publicar na Web', a gravação direta pelo site é restrita. Para lançar novos dados, alimente a planilha diretamente no Google Drive. O site atualizará automaticamente em alguns segundos.")
+        with st.form("form_cad"):
+            sei = st.text_input("Número SEI")
+            nome = st.text_input("Nome")
+            cpf = st.text_input("CPF (11 dígitos)")
+            assunto = st.selectbox("Assunto", ["TI", "RH", "Obras", "Outros"])
+            if st.form_submit_button("Lançar no Sistema"):
+                data_agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                mask = f"{cpf[:3]}.***.***-{cpf[9:]}"
+                # Enviando para a planilha via Script
+                payload = {"tipo": "cadastro", "sei": sei, "nome": nome.split()[0].upper(), "mask": mask, "cpf": cpf, "assunto": assunto, "data": data_agora, "obs": "Cadastro Inicial"}
+                requests.post(URL_SCRIPT, json=payload)
+                st.success("✅ Protocolo registrado!")
+
+# --- ABA 3: ATUALIZAÇÃO ---
+with abas[len(abas)-1] if senha == SENHA_CORRETA else abas[0]:
+    if senha == SENHA_CORRETA:
+        st.subheader("Atualizar Status")
+        # Aqui você pode ler a planilha e mudar o status
+        st.write("Selecione o processo na planilha para alterar o status.")
